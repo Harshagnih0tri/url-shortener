@@ -126,3 +126,7 @@ def redirect(code: str, request: Request, db: Session = Depends(get_db)):
                  referrer=request.headers.get("referer")))
     db.commit()
     return RedirectResponse(link.original_url, status_code=302)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, port=int(os.getenv("PORT", 8000)))
