@@ -10,7 +10,7 @@ Needs Python 3.10+.
 python -m venv venv
 venv\Scripts\activate        # on Mac/Linux: source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+python main.py
 ```
 
 The API runs at http://localhost:8000 and interactive docs are at http://localhost:8000/docs.
@@ -25,10 +25,9 @@ Environment variables (all optional):
 
 | Variable | Default |
 | --- | --- |
+| `PORT` | `8000` |
 | `DATABASE_URL` | `sqlite:///./shortener.db` |
 | `BASE_URL` | `http://localhost:8000` |
-
-Port can be set with `uvicorn main:app --port 8080`.
 
 ## Endpoints
 
@@ -48,7 +47,7 @@ All errors return `{"error": "message"}`.
 - **SQLite + SQLAlchemy**: no database server to install, so the project runs with one command. Because SQLAlchemy is used, switching to Postgres only needs a different `DATABASE_URL`.
 - **pytest**: simple to write and read tests.
 
-The schema is in `models.py` and tables are created on startup.
+The schema is in `schema.sql`. The app creates the same tables automatically on startup from `models.py`.
 
 ## 3. How short codes are generated
 
