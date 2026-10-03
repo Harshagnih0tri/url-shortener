@@ -8,7 +8,8 @@ You need Python 3.10 or newer.
 
 ```bash
 python -m venv venv
-venv\Scripts\activate        # on Mac/Linux: source venv/bin/activate
+venv\Scripts\activate             # Windows
+source venv/bin/activate          # Mac/Linux
 pip install -r requirements.txt
 python main.py
 ```
@@ -50,7 +51,7 @@ If you create too many links too fast you get a 429. Every error comes back as `
 
 ## 2. Stack and why I picked it
 
-- Python and FastAPI: I used FastAPI in my earlier project, so I already knew it. It checks the request body for me and gives Swagger docs for free.
+- Python and FastAPI: I used FastAPI in my GrowthX project (a habit tracker backend), so I already knew it. It checks the request body for me and gives Swagger docs for free.
 - SQLite with SQLAlchemy: nothing to install, the database is just a file. Since I used SQLAlchemy, moving to Postgres later only means changing `DATABASE_URL`.
 - pytest: easy to write and read.
 
@@ -58,13 +59,11 @@ The tables are in `schema.sql`. The app also creates them by itself when it star
 
 ## 3. How the short codes work
 
-Every code is 7 random characters from a-z, A-Z and 0-9. I used Python's `secrets` module instead of `random` so nobody can guess the next code.
+I generate a 7-character code using `secrets` (letters and numbers). There are so many possible codes that collisions should be rare, but I still keep a UNIQUE constraint on the `code` column as a safety check. If a collision happens, the app rolls back and tries a new code, up to 5 times.
 
-That gives 62^7 codes, which is around 3.5 trillion, so two links getting the same code is very unlikely. But it can still happen, so the `code` column is UNIQUE in the database. If the database says the code already exists, I roll back and try again with a new code, up to 5 times.
+I let the database catch duplicates instead of checking first, because two requests at the same time could both pass a check.
 
-I didn't do "check if the code exists, then insert", because if two requests come at the same moment, both can pass the check and save the same code. The UNIQUE rule in the database stops that every time.
-
-If someone shortens the same URL twice, they get a new code each time. It keeps the code simple, and each link gets its own expiry and its own stats.
+If someone shortens the same URL twice, they get a new code each time, so each link has its own expiry and stats.
 
 ## 4. Trade-offs and assumptions
 
@@ -79,13 +78,12 @@ If someone shortens the same URL twice, they get a new code each time. It keeps 
 
 ## 5. What I would change for 1 million redirects a day
 
-1 million a day is about 12 requests a second on average, so it's not huge. But this is what I would change:
+That's around 12 requests a second, so it's not a lot, but I would:
 
-- Switch from SQLite to Postgres, because SQLite isn't good with lots of writes at the same time.
-- Add Redis to cache code-to-URL lookups. Most requests are redirects, which only read data, so a cache helps a lot.
-- Save clicks in the background (with a queue), so the user doesn't wait for the click to be saved before getting redirected.
-- Keep a daily count of clicks in a separate table, so stats don't have to go through every single click.
-- Run more than one copy of the app behind a load balancer.
+- Move from SQLite to Postgres.
+- Cache code-to-URL lookups in Redis, since most requests are redirects.
+- Save clicks in the background so redirects stay fast.
+- Run more than one instance of the app behind a load balancer.
 
 ## 6. Did I use AI?
 
