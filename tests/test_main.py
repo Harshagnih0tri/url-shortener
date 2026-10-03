@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from database import Base, engine, SessionLocal
-from main import app
+from main import app, hits
 from models import Url
 
 client = TestClient(app, follow_redirects=False)
@@ -17,6 +17,7 @@ client = TestClient(app, follow_redirects=False)
 def clean_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    hits.clear()
 
 
 def shorten(url="https://example.com"):
@@ -66,3 +67,10 @@ def test_delete():
     code = shorten()
     assert client.delete(f"/api/urls/{code}").status_code == 204
     assert client.get(f"/{code}").status_code == 404
+
+
+def test_rate_limit():
+    for i in range(10):
+        shorten()
+    res = client.post("/api/urls", json={"url": "https://example.com"})
+    assert res.status_code == 429

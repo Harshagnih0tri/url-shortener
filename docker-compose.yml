@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/shortener.db
+      BASE_URL: http://localhost:8000
+    volumes:
+      - data:/data
+
+volumes:
+  data:

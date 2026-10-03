@@ -1,7 +1,8 @@
 import os
 import secrets
 import string
-from collections import Counter
+import time
+from collections import Counter, defaultdict
 from datetime import timezone
 from urllib.parse import urlparse
 
@@ -17,6 +18,8 @@ from schemas import UrlCreate
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 CHARS = string.ascii_letters + string.digits
+RATE_LIMIT = int(os.getenv("RATE_LIMIT", 10))  # creates per minute per IP
+hits = defaultdict(list)
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -39,6 +42,14 @@ def get_link(db, code):
     return link
 
 
+def check_rate_limit(ip):
+    now = time.time()
+    hits[ip] = [t for t in hits[ip] if now - t < 60]
+    if len(hits[ip]) >= RATE_LIMIT:
+        raise HTTPException(429, "Too many requests, try again in a minute")
+    hits[ip].append(now)
+
+
 def to_json(link):
     return {
         "code": link.code,
@@ -50,7 +61,9 @@ def to_json(link):
 
 
 @app.post("/api/urls", status_code=201)
-def create_url(data: UrlCreate, db: Session = Depends(get_db)):
+def create_url(data: UrlCreate, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(request.client.host)
+
     parts = urlparse(data.url)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise HTTPException(400, "url must be a valid http or https URL")
@@ -126,6 +139,7 @@ def redirect(code: str, request: Request, db: Session = Depends(get_db)):
                  referrer=request.headers.get("referer")))
     db.commit()
     return RedirectResponse(link.original_url, status_code=302)
+
 
 if __name__ == "__main__":
     import uvicorn

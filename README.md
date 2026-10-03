@@ -13,6 +13,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
+Or with Docker:
+
+```bash
+docker compose up --build
+```
+
 The API runs at http://localhost:8000 and interactive docs are at http://localhost:8000/docs.
 
 Run tests:
@@ -28,6 +34,7 @@ Environment variables (all optional):
 | `PORT` | `8000` |
 | `DATABASE_URL` | `sqlite:///./shortener.db` |
 | `BASE_URL` | `http://localhost:8000` |
+| `RATE_LIMIT` | `10` (creates per minute per IP) |
 
 ## Endpoints
 
@@ -39,13 +46,13 @@ Environment variables (all optional):
 | GET | `/api/urls?page=1&limit=20` | List links, newest first |
 | DELETE | `/api/urls/{code}` | Delete a link (204) |
 
-All errors return `{"error": "message"}`.
+Creating links is rate limited (429 if exceeded). All errors return `{"error": "message"}`.
 
 ## 2. Stack and why
 
-- **Python + FastAPI**: I have used it before, it validates request bodies for me and gives free API docs at `/docs`.
-- **SQLite + SQLAlchemy**: no database server to install, so the project runs with one command. Because SQLAlchemy is used, switching to Postgres only needs a different `DATABASE_URL`.
-- **pytest**: simple to write and read tests.
+- Python + FastAPI: I used FastAPI in an earlier project, so I was comfortable with it. It validates request bodies for me and gives free API docs at `/docs`.
+- SQLite + SQLAlchemy: no database server to install, so the project runs with one command. Because SQLAlchemy is used, switching to Postgres only needs a different `DATABASE_URL`.
+- pytest: simple to write and read tests.
 
 The schema is in `schema.sql`. The app creates the same tables automatically on startup from `models.py`.
 
@@ -57,7 +64,7 @@ There are 62^7 (about 3.5 trillion) possible codes, so collisions are very rare.
 
 I rely on the database constraint instead of checking "does this code exist?" first, because two requests at the same time could both pass that check. The constraint can't be bypassed.
 
-**Same URL twice:** each request gets a new code. This keeps it simple and lets each link have its own expiry and its own click stats.
+Same URL twice: each request gets a new code. This keeps it simple and lets each link have its own expiry and its own click stats.
 
 ## 4. Trade-offs and assumptions
 
@@ -67,16 +74,18 @@ I rely on the database constraint instead of checking "does this code exist?" fi
 - Stats are counted in Python. Fine for this size, but at scale this should be a SQL `GROUP BY`.
 - Tables are created with `create_all` instead of a migration tool, to keep the project small.
 - No authentication: anyone can create or delete links.
+- Rate limiting is kept in memory, so it resets on restart and isn't shared between multiple servers. In production I would use Redis.
+- Docker runs only the app. SQLite is a file, so there is no separate database container. The file is kept in a Docker volume.
 
 ## 5. Handling 1 million redirects a day
 
 1M a day is about 12 requests per second on average, so the current design is not far off. What I would change:
 
-- Move from SQLite to **PostgreSQL**, which handles many concurrent writes.
-- Add a **cache (Redis)** for code → URL, since redirects are mostly reads.
-- **Save clicks in the background** (queue + worker) so the redirect doesn't wait for a database write.
-- Store **daily click counts** in a separate table so stats don't scan every click.
-- Run **multiple app instances** behind a load balancer.
+- Move from SQLite to PostgreSQL, which handles many concurrent writes.
+- Add a Redis cache for code-to-URL lookups, since redirects are mostly reads.
+- Save clicks in the background (queue + worker) so the redirect doesn't wait for a database write.
+- Store daily click counts in a separate table so stats don't scan every click.
+- Run multiple app instances behind a load balancer.
 
 ## 6. Use of AI tools
 
