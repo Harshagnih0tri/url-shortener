@@ -1,10 +1,10 @@
 # URL Shortener
 
-A small backend service that shortens URLs, redirects to the original URL and tracks clicks.
+A small backend service that turns long URLs into short ones, redirects people to the original URL and keeps track of clicks.
 
-## 1. Setup and run
+## 1. How to run it
 
-Needs Python 3.10+.
+You need Python 3.10 or newer.
 
 ```bash
 python -m venv venv
@@ -13,80 +13,80 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Or with Docker:
+Or if you have Docker:
 
 ```bash
 docker compose up --build
 ```
 
-The API runs at http://localhost:8000 and interactive docs are at http://localhost:8000/docs.
+The app runs on http://localhost:8000. You can try all the endpoints from http://localhost:8000/docs.
 
-Run tests:
+To run the tests:
 
 ```bash
 pytest
 ```
 
-Environment variables (all optional):
+Settings (all optional, they have defaults):
 
 | Variable | Default |
 | --- | --- |
 | `PORT` | `8000` |
 | `DATABASE_URL` | `sqlite:///./shortener.db` |
 | `BASE_URL` | `http://localhost:8000` |
-| `RATE_LIMIT` | `10` (creates per minute per IP) |
+| `RATE_LIMIT` | `10` (links per minute per IP) |
 
 ## Endpoints
 
-| Method | Path | Description |
+| Method | Path | What it does |
 | --- | --- | --- |
 | POST | `/api/urls` | Create a short URL |
-| GET | `/{code}` | Redirect (302), 404 if unknown, 410 if expired |
-| GET | `/api/urls/{code}/stats` | Click stats |
-| GET | `/api/urls?page=1&limit=20` | List links, newest first |
+| GET | `/{code}` | Redirect (302). 404 if the code doesn't exist, 410 if it has expired |
+| GET | `/api/urls/{code}/stats` | Click stats for a link |
+| GET | `/api/urls?page=1&limit=20` | List of links, newest first |
 | DELETE | `/api/urls/{code}` | Delete a link (204) |
 
-Creating links is rate limited (429 if exceeded). All errors return `{"error": "message"}`.
+If you create too many links too fast you get a 429. Every error comes back as `{"error": "message"}`.
 
-## 2. Stack and why
+## 2. Stack and why I picked it
 
-- Python + FastAPI: I used FastAPI in an earlier project, so I was comfortable with it. It validates request bodies for me and gives free API docs at `/docs`.
-- SQLite + SQLAlchemy: no database server to install, so the project runs with one command. Because SQLAlchemy is used, switching to Postgres only needs a different `DATABASE_URL`.
-- pytest: simple to write and read tests.
+- Python and FastAPI: I used FastAPI in my earlier project, so I already knew it. It checks the request body for me and gives Swagger docs for free.
+- SQLite with SQLAlchemy: nothing to install, the database is just a file. Since I used SQLAlchemy, moving to Postgres later only means changing `DATABASE_URL`.
+- pytest: easy to write and read.
 
-The schema is in `schema.sql`. The app creates the same tables automatically on startup from `models.py`.
+The tables are in `schema.sql`. The app also creates them by itself when it starts (from `models.py`).
 
-## 3. How short codes are generated
+## 3. How the short codes work
 
-Each code is 7 random characters from `a-z A-Z 0-9`, generated with Python's `secrets` module (not `random`, so codes can't be guessed).
+Every code is 7 random characters from a-z, A-Z and 0-9. I used Python's `secrets` module instead of `random` so nobody can guess the next code.
 
-There are 62^7 (about 3.5 trillion) possible codes, so collisions are very rare. The `code` column has a UNIQUE constraint. If a new code already exists, the database rejects the insert, I roll back and try again with a new code (up to 5 times).
+That gives 62^7 codes, which is around 3.5 trillion, so two links getting the same code is very unlikely. But it can still happen, so the `code` column is UNIQUE in the database. If the database says the code already exists, I roll back and try again with a new code, up to 5 times.
 
-I rely on the database constraint instead of checking "does this code exist?" first, because two requests at the same time could both pass that check. The constraint can't be bypassed.
+I didn't do "check if the code exists, then insert", because if two requests come at the same moment, both can pass the check and save the same code. The UNIQUE rule in the database stops that every time.
 
-Same URL twice: each request gets a new code. This keeps it simple and lets each link have its own expiry and its own click stats.
+If someone shortens the same URL twice, they get a new code each time. It keeps the code simple, and each link gets its own expiry and its own stats.
 
 ## 4. Trade-offs and assumptions
 
-- All times are stored and returned in UTC. `clicksByDay` uses UTC dates.
-- Clicks on expired links are not counted.
-- `expiresAt` in the past is rejected with 400.
-- Stats are counted in Python. Fine for this size, but at scale this should be a SQL `GROUP BY`.
-- Tables are created with `create_all` instead of a migration tool, to keep the project small.
-- No authentication: anyone can create or delete links.
-- Rate limiting is kept in memory, so it resets on restart and isn't shared between multiple servers. In production I would use Redis.
-- Docker runs only the app. SQLite is a file, so there is no separate database container. The file is kept in a Docker volume.
+- All times are in UTC, so `clicksByDay` groups clicks by UTC date.
+- If a link is expired, the click is not counted.
+- You can't create a link with an expiry date in the past (returns 400).
+- Stats are counted in Python. This is fine for a small project, but with a lot of clicks I would count them in SQL with `GROUP BY`.
+- Tables are created with `create_all`. In a bigger project I would use migrations (like Alembic).
+- There is no login, so anyone can create or delete links. The brief didn't ask for it.
+- The rate limit is stored in memory, so it resets when the server restarts. With more than one server I would move it to Redis.
+- Docker runs only the app. SQLite is just a file, so it doesn't need its own container. The file is saved in a Docker volume so data is not lost.
 
-## 5. Handling 1 million redirects a day
+## 5. What I would change for 1 million redirects a day
 
-1M a day is about 12 requests per second on average, so the current design is not far off. What I would change:
+1 million a day is about 12 requests a second on average, so it's not huge. But this is what I would change:
 
-- Move from SQLite to PostgreSQL, which handles many concurrent writes.
-- Add a Redis cache for code-to-URL lookups, since redirects are mostly reads.
-- Save clicks in the background (queue + worker) so the redirect doesn't wait for a database write.
-- Store daily click counts in a separate table so stats don't scan every click.
-- Run multiple app instances behind a load balancer.
+- Switch from SQLite to Postgres, because SQLite isn't good with lots of writes at the same time.
+- Add Redis to cache code-to-URL lookups. Most requests are redirects, which only read data, so a cache helps a lot.
+- Save clicks in the background (with a queue), so the user doesn't wait for the click to be saved before getting redirected.
+- Keep a daily count of clicks in a separate table, so stats don't have to go through every single click.
+- Run more than one copy of the app behind a load balancer.
 
-## 6. Use of AI tools
+## 6. Did I use AI?
 
-I used Claude to help plan the structure and understand concepts. I wrote, ran and tested the code myself.
+Yes. I used Claude to help me plan the structure, understand things I wasn't sure about (like 302 vs 301 and how to handle code collisions) and review my code. I typed, ran and tested the code myself.
